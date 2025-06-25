@@ -53,15 +53,12 @@ get_current_version() {
     local service_name="$1"
     local image_name="$2"
     
-    # Docker compose'dan mevcut image'ı al
-    local current_image
-    current_image=$(docker compose -f "$COMPOSE_FILE" images --format "table {{.Image}}" | grep "$image_name" | head -1 | awk '{print $1}')
+    # Compose dosyasından direkt oku
+    local compose_image
+    compose_image=$(grep "image: $image_name:" "$COMPOSE_FILE" | head -1 | awk '{print $2}' | cut -d':' -f2)
     
-    if [[ -n "$current_image" ]]; then
-        # Tag'i çıkar
-        local current_tag
-        current_tag=$(echo "$current_image" | cut -d':' -f2)
-        echo "$current_tag"
+    if [[ -n "$compose_image" ]]; then
+        echo "$compose_image"
     else
         echo "latest"
     fi
