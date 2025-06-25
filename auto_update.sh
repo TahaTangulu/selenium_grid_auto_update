@@ -88,47 +88,43 @@ backup_current_state() {
     # Backup dizinini oluştur
     mkdir -p "$BACKUP_DIR"
     
-    try {
-        # Docker compose config'i yedekle
-        docker compose -f "$COMPOSE_FILE" config > "$backup_file"
-        
+    # Docker compose config'i yedekle
+    if docker compose -f "$COMPOSE_FILE" config > "$backup_file" 2>/dev/null; then
         # Mevcut image versiyonlarını da yedekle
         local image_backup_file="${BACKUP_DIR}/images_${timestamp}.txt"
-        docker compose -f "$COMPOSE_FILE" images > "$image_backup_file"
+        docker compose -f "$COMPOSE_FILE" images > "$image_backup_file" 2>/dev/null || true
         
         log "Current state backed up to: $backup_file"
         log "Image versions backed up to: $image_backup_file"
         return 0
-    } catch {
-        error "Backup failed: $1"
+    else
+        error "Backup failed"
         return 1
-    }
+    fi
 }
 
 # Servisleri durdur
 stop_services() {
-    try {
-        log "Stopping Selenium Grid services..."
-        docker compose -f "$COMPOSE_FILE" down
+    log "Stopping Selenium Grid services..."
+    if docker compose -f "$COMPOSE_FILE" down; then
         log "Services stopped successfully"
         return 0
-    } catch {
-        error "Failed to stop services: $1"
+    else
+        error "Failed to stop services"
         return 1
-    }
+    fi
 }
 
 # Servisleri başlat
 start_services() {
-    try {
-        log "Starting Selenium Grid services..."
-        docker compose -f "$COMPOSE_FILE" up -d
+    log "Starting Selenium Grid services..."
+    if docker compose -f "$COMPOSE_FILE" up -d; then
         log "Services started successfully"
         return 0
-    } catch {
-        error "Failed to start services: $1"
+    else
+        error "Failed to start services"
         return 1
-    }
+    fi
 }
 
 # Servislerin hazır olmasını bekle
@@ -156,12 +152,10 @@ wait_for_services_ready() {
 
 # Eski image'ları temizle
 cleanup_old_images() {
-    try {
-        log "Cleaning up old Docker images..."
-        
-        # Kullanılmayan image'ları sil
-        docker image prune -f
-        
+    log "Cleaning up old Docker images..."
+    
+    # Kullanılmayan image'ları sil
+    if docker image prune -f >/dev/null 2>&1; then
         # Selenium image'larının eski versiyonlarını sil (latest hariç)
         local selenium_images=("selenium/hub" "selenium/node-chrome" "selenium/node-firefox" "selenium/node-edge")
         
@@ -172,10 +166,10 @@ cleanup_old_images() {
         
         log "Old images cleaned up"
         return 0
-    } catch {
-        warning "Image cleanup failed: $1"
+    else
+        warning "Image cleanup failed"
         return 1
-    }
+    fi
 }
 
 # Güncelleme kontrolü yap
@@ -212,46 +206,40 @@ check_for_updates() {
 update_selenium_grid() {
     log "Starting Selenium Grid update process..."
     
-    try {
-        # 1. Mevcut durumu yedekle
-        if ! backup_current_state; then
-            error "Backup failed, aborting update"
-            return 1
-        fi
-        
-        # 2. Güncelleme kontrolü
-        if ! check_for_updates; then
-            log "No updates needed, all services are up to date"
-            return 0
-        fi
-        
-        # 3. Servisleri durdur
-        if ! stop_services; then
-            error "Failed to stop services"
-            return 1
-        fi
-        
-        # 4. Servisleri yeniden başlat (yeni image'lar ile)
-        if ! start_services; then
-            error "Failed to start services"
-            return 1
-        fi
-        
-        # 5. Servislerin hazır olmasını bekle
-        if ! wait_for_services_ready; then
-            warning "Services may not be fully ready"
-        fi
-        
-        # 6. Eski image'ları temizle
-        cleanup_old_images
-        
-        log "Selenium Grid update completed successfully!"
-        return 0
-        
-    } catch {
-        error "Unexpected error during update: $1"
+    # 1. Mevcut durumu yedekle
+    if ! backup_current_state; then
+        error "Backup failed, aborting update"
         return 1
-    }
+    fi
+    
+    # 2. Güncelleme kontrolü
+    if ! check_for_updates; then
+        log "No updates needed, all services are up to date"
+        return 0
+    fi
+    
+    # 3. Servisleri durdur
+    if ! stop_services; then
+        error "Failed to stop services"
+        return 1
+    fi
+    
+    # 4. Servisleri yeniden başlat (yeni image'lar ile)
+    if ! start_services; then
+        error "Failed to start services"
+        return 1
+    fi
+    
+    # 5. Servislerin hazır olmasını bekle
+    if ! wait_for_services_ready; then
+        warning "Services may not be fully ready"
+    fi
+    
+    # 6. Eski image'ları temizle
+    cleanup_old_images
+    
+    log "Selenium Grid update completed successfully!"
+    return 0
 }
 
 # Ana fonksiyon
