@@ -48,6 +48,41 @@ cleanup() {
 # Script sonlandığında cleanup yap
 trap cleanup EXIT
 
+# Mevcut sürümü tespit et
+get_current_version() {
+    local service_name="$1"
+    local image_name="$2"
+    
+    # Docker compose'dan mevcut image'ı al
+    local current_image
+    current_image=$(docker compose -f "$COMPOSE_FILE" images --format "table {{.Image}}" | grep "$image_name" | head -1 | awk '{print $1}')
+    
+    if [[ -n "$current_image" ]]; then
+        # Tag'i çıkar
+        local current_tag
+        current_tag=$(echo "$current_image" | cut -d':' -f2)
+        echo "$current_tag"
+    else
+        echo "latest"
+    fi
+}
+
+# En son sürümü bul
+get_latest_version() {
+    local image_name="$1"
+    
+    # Docker Hub'dan en son tag'leri çek
+    local latest_tags
+    latest_tags=$(curl -s "https://registry.hub.docker.com/v2/repositories/$image_name/tags/?page_size=10&ordering=last_updated" | grep -o '"name":"[^"]*"' | cut -d'"' -f4 | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | head -5)
+    
+    if [[ -n "$latest_tags" ]]; then
+        # En son sürümü al
+        echo "$latest_tags" | head -1
+    else
+        echo "latest"
+    fi
+}
+
 # Docker image versiyonlarını karşılaştır
 check_image_updates() {
     local service_name="$1"
@@ -55,28 +90,50 @@ check_image_updates() {
     
     info "Checking for updates for $service_name..."
     
-    # Mevcut image'ın digest'ini al
-    local current_digest
-    current_digest=$(docker images --digests --format "table {{.Repository}}:{{.Tag}}\t{{.Digest}}" | grep "^${image_name}:latest" | awk '{print $2}' || echo "")
+    # Mevcut sürümü al
+    local current_version
+    current_version=$(get_current_version "$service_name" "$image_name")
     
-    # En son image'ı çek
-    if docker pull "${image_name}:latest" >/dev/null 2>&1; then
-        # Yeni image'ın digest'ini al
-        local new_digest
-        new_digest=$(docker images --digests --format "table {{.Repository}}:{{.Tag}}\t{{.Digest}}" | grep "^${image_name}:latest" | awk '{print $2}' || echo "")
+    # En son sürümü al
+    local latest_version
+    latest_version=$(get_latest_version "$image_name")
+    
+    log "Current version: $current_version"
+    log "Latest version: $latest_version"
+    
+    # Sürümleri karşılaştır
+    if [[ "$current_version" != "$latest_version" ]]; then
+        log "Update available for $service_name: $current_version -> $latest_version"
         
-        # Digest'leri karşılaştır
-        if [[ "$current_digest" != "$new_digest" ]] && [[ -n "$new_digest" ]]; then
-            log "Update available for $service_name"
-            return 0  # Güncelleme mevcut
-        else
-            info "No update available for $service_name"
-            return 1  # Güncelleme yok
-        fi
+        # Compose dosyasını güncelle
+        update_compose_file "$service_name" "$image_name" "$latest_version"
+        
+        return 0  # Güncelleme mevcut
     else
-        warning "Failed to pull latest image for $service_name"
-        return 1
+        info "No update available for $service_name (already at $current_version)"
+        return 1  # Güncelleme yok
     fi
+}
+
+# Compose dosyasını güncelle
+update_compose_file() {
+    local service_name="$1"
+    local image_name="$2"
+    local new_version="$3"
+    
+    log "Updating compose file for $service_name to version $new_version"
+    
+    # Geçici dosya oluştur
+    local temp_file
+    temp_file=$(mktemp)
+    
+    # Compose dosyasını oku ve güncelle
+    sed "s|image: $image_name:[^[:space:]]*|image: $image_name:$new_version|g" "$COMPOSE_FILE" > "$temp_file"
+    
+    # Geçici dosyayı asıl dosyaya kopyala
+    mv "$temp_file" "$COMPOSE_FILE"
+    
+    log "Compose file updated successfully"
 }
 
 # Mevcut durumu yedekle
